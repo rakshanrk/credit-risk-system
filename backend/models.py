@@ -206,7 +206,7 @@ class Guarantor(Base):
     guarantor_id = Column(Integer, primary_key=True, autoincrement=True)
     loan_id = Column(Integer, ForeignKey('loans.loan_id', ondelete='CASCADE'), nullable=False)
     guarantor_name = Column(String(100), nullable=False)
-    relationship = Column(String(50), nullable=False)
+    guarantor_relationship = Column(String(50), nullable=False)
     guarantor_phone = Column(String(15), nullable=False)
     guarantor_email = Column(String(100))
     guarantor_address = Column(Text, nullable=False)
