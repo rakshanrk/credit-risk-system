@@ -109,7 +109,6 @@ CREATE TABLE collateral (
     FOREIGN KEY (loan_id) REFERENCES loans(loan_id) ON DELETE CASCADE
 );
 
--- ============================================
 -- TABLE 6: GUARANTORS
 -- Stores guarantor information for loans
 -- ============================================
@@ -117,7 +116,7 @@ CREATE TABLE guarantors (
     guarantor_id SERIAL PRIMARY KEY,
     loan_id INT NOT NULL,
     guarantor_name VARCHAR(100) NOT NULL,
-    relationship VARCHAR(50) NOT NULL,
+    guarantor_relationship VARCHAR(50) NOT NULL,
     guarantor_phone VARCHAR(15) NOT NULL,
     guarantor_email VARCHAR(100),
     guarantor_address TEXT NOT NULL,
@@ -161,10 +160,8 @@ CREATE TABLE repayments (
     FOREIGN KEY (loan_id) REFERENCES loans(loan_id) ON DELETE CASCADE
 );
 
--- ============================================
 -- TABLE 9: NPA_TRACKING
 -- Tracks Non-Performing Assets (loans overdue > 90 days)
--- ============================================
 CREATE TABLE npa_tracking (
     npa_id SERIAL PRIMARY KEY,
     loan_id INT NOT NULL,

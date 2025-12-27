@@ -1,21 +1,14 @@
 """
-Seed script to populate the database with realistic dummy data.
+FIXED Seed script with CAUSAL default logic.
 
-This script generates:
-- 50 Customers
-- 75 Applications (Approved: 50, Rejected: 15, Pending: 10)
-- 50 Employment records
-- 50 Loans (for approved applications)
-- 30 Collateral records
-- 20 Guarantors
-- 50 Approved_Loans records
-- 200+ Repayments (multiple per loan)
-- 10 NPA_Tracking records (defaulted loans)
+KEY CHANGES:
+1. Defaults are now based on financial risk factors (NOT random)
+2. High DTI → High default probability
+3. Low income + high loan → High default probability
+4. Application approval/rejection based on risk score
+5. Loan status based on actual repayment behavior
 
-Why we need dummy data:
-- Test API endpoints without manual data entry
-- Train ML model with diverse examples
-- Demonstrate portfolio analytics in dashboard
+This creates LEARNABLE patterns for the ML model.
 """
 
 import sys
@@ -24,7 +17,6 @@ import random
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-# Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.database import get_db_session, close_db_session
@@ -33,14 +25,15 @@ from backend.models import (
     Collateral, Guarantor, ApprovedLoan, Repayment, NPATracking
 )
 
+# ============================================
 # CONFIGURATION
+# ============================================
 NUM_CUSTOMERS = 50
-NUM_APPLICATIONS = 75  # More applications than customers (some apply multiple times)
-NUM_APPROVED = 50
-NUM_REJECTED = 15
-NUM_PENDING = 10
+NUM_APPLICATIONS = 75
 
-# HELPER DATA
+# ============================================
+# HELPER DATA (Same as before)
+# ============================================
 FIRST_NAMES = [
     "Arjun", "Priya", "Rahul", "Sneha", "Vikram", "Anjali", "Rohan", "Divya",
     "Karthik", "Meera", "Aditya", "Pooja", "Sanjay", "Kavya", "Amit", "Riya",
@@ -83,59 +76,160 @@ LOAN_PURPOSES = [
 
 COLLATERAL_TYPES = ["Property", "Vehicle", "Gold", "Securities"]
 
-# UTILITY FUNCTIONS
+# ============================================
+# UTILITY FUNCTIONS (Same as before)
+# ============================================
 
 def random_date(start_year=1970, end_year=2000):
-    """Generate random date of birth (age 24-54)"""
     start = datetime(start_year, 1, 1)
     end = datetime(end_year, 12, 31)
     delta = end - start
     random_days = random.randint(0, delta.days)
     return start + timedelta(days=random_days)
 
-
 def random_recent_date(days_ago=365):
-    """Generate random date within last N days"""
     return datetime.now().date() - timedelta(days=random.randint(0, days_ago))
 
-
 def generate_pan():
-    """Generate fake PAN number (format: ABCDE1234F)"""
     letters = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ', k=5))
     digits = ''.join(random.choices('0123456789', k=4))
     last_letter = random.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
     return f"{letters}{digits}{last_letter}"
 
-
 def generate_aadhar():
-    """Generate fake Aadhar number (12 digits)"""
     return ''.join(random.choices('0123456789', k=12))
 
-
 def generate_phone():
-    """Generate fake phone number"""
     return f"{random.randint(7, 9)}{random.randint(100000000, 999999999)}"
 
-
 def calculate_emi(principal, rate_annual, tenure_months):
-    """
-    Calculate EMI using standard formula.
-    EMI = [P × r × (1 + r)^n] / [(1 + r)^n - 1]
-    
-    Interview Note: This is the industry-standard EMI calculation formula.
-    """
-    rate_monthly = rate_annual / (12 * 100)  # Convert annual % to monthly decimal
+    rate_monthly = rate_annual / (12 * 100)
     if rate_monthly == 0:
         return principal / tenure_months
     emi = (principal * rate_monthly * (1 + rate_monthly) ** tenure_months) / \
           ((1 + rate_monthly) ** tenure_months - 1)
     return round(emi, 2)
 
+# ============================================
+# NEW: CAUSAL RISK CALCULATION
+# ============================================
 
+def calculate_risk_score(monthly_income, loan_amount, tenure_months, 
+                         employment_type, years_experience):
+    """
+    Calculate risk score based on REAL financial factors.
+    
+    Returns:
+        tuple: (risk_score 0-100, should_approve bool)
+    
+    Interview Note:
+    "I designed a rules-based credit scoring system that mimics real-world
+    underwriting criteria. High DTI ratios, low income, and unstable employment
+    increase default risk, which is reflected in the training labels."
+    """
+    # Calculate DTI (Debt-to-Income Ratio)
+    emi = calculate_emi(loan_amount, 10.0, tenure_months)  # Assume 10% rate
+    dti = (emi / monthly_income) * 100
+    
+    # Calculate LTI (Loan-to-Income Ratio)
+    lti = loan_amount / monthly_income
+    
+    # ============================================
+    # RISK FACTORS (Additive scoring)
+    # ============================================
+    risk_score = 0
+    
+    # Factor 1: DTI Ratio (Most important!)
+    if dti > 50:
+        risk_score += 40  # Very high risk
+    elif dti > 40:
+        risk_score += 25  # High risk
+    elif dti > 30:
+        risk_score += 10  # Medium risk
+    else:
+        risk_score += 0   # Low risk
+    
+    # Factor 2: Income Level
+    if monthly_income < 30000:
+        risk_score += 20  # Low income = high risk
+    elif monthly_income < 50000:
+        risk_score += 10
+    elif monthly_income > 100000:
+        risk_score -= 10  # High income = lower risk
+    
+    # Factor 3: Loan Size relative to income
+    if lti > 36:
+        risk_score += 15  # Loan is too large
+    elif lti > 24:
+        risk_score += 8
+    
+    # Factor 4: Employment Stability
+    if employment_type == 'Self-Employed':
+        risk_score += 10  # Less stable income
+    elif employment_type == 'Business':
+        risk_score += 5
+    
+    # Factor 5: Experience (Job stability indicator)
+    if years_experience < 2:
+        risk_score += 10  # New job = risky
+    elif years_experience < 5:
+        risk_score += 5
+    elif years_experience > 10:
+        risk_score -= 5  # Stable career
+    
+    # Factor 6: Loan Tenure
+    if tenure_months > 120:
+        risk_score += 5  # Long tenure = more uncertainty
+    
+    # Clamp to 0-100
+    risk_score = max(0, min(100, risk_score))
+    
+    # ============================================
+    # APPROVAL LOGIC
+    # ============================================
+    """
+    Banks typically reject if:
+    - Risk score > 60
+    - DTI > 50%
+    - Income < 25000
+    """
+    should_approve = (
+        risk_score < 60 and
+        dti < 50 and
+        monthly_income >= 25000
+    )
+    
+    return risk_score, should_approve
+
+
+def calculate_default_probability(risk_score):
+    """
+    Convert risk score to default probability.
+    
+    Risk Score → Default Probability mapping:
+    - 0-20: 5-10% chance
+    - 20-40: 10-25% chance
+    - 40-60: 25-50% chance
+    - 60-80: 50-75% chance
+    - 80-100: 75-95% chance
+    """
+    if risk_score < 20:
+        return random.uniform(0.05, 0.10)
+    elif risk_score < 40:
+        return random.uniform(0.10, 0.25)
+    elif risk_score < 60:
+        return random.uniform(0.25, 0.50)
+    elif risk_score < 80:
+        return random.uniform(0.50, 0.75)
+    else:
+        return random.uniform(0.75, 0.95)
+
+
+# ============================================
 # DATA GENERATION FUNCTIONS
+# ============================================
 
 def create_customers(session, count=50):
-    """Generate customer records"""
     print(f"\n[1/9] Creating {count} customers...")
     customers = []
     
@@ -161,52 +255,95 @@ def create_customers(session, count=50):
     
     session.bulk_save_objects(customers)
     session.commit()
-    print(f"Created {count} customers")
+    print(f"✓ Created {count} customers")
     return session.query(Customer).all()
 
 
 def create_employment(session, customers):
-    """Generate employment records"""
     print(f"\n[2/9] Creating employment records...")
     employment_records = []
     
     for customer in customers:
+        # Realistic income distribution
+        income_tier = random.choices(
+            ['low', 'medium', 'high'],
+            weights=[0.3, 0.5, 0.2]
+        )[0]
+        
+        if income_tier == 'low':
+            monthly_income = Decimal(random.randint(25000, 50000))
+        elif income_tier == 'medium':
+            monthly_income = Decimal(random.randint(50000, 100000))
+        else:
+            monthly_income = Decimal(random.randint(100000, 250000))
+        
         employment = Employment(
             customer_id=customer.customer_id,
             employer_name=random.choice(COMPANIES),
             job_title=random.choice(JOB_TITLES),
             employment_type=random.choice(['Salaried', 'Self-Employed', 'Business']),
-            monthly_income=Decimal(random.randint(30000, 200000)),
+            monthly_income=monthly_income,
             years_of_experience=Decimal(random.uniform(1.0, 25.0)).quantize(Decimal('0.1')),
             employer_phone=generate_phone(),
-            employment_start_date=random_recent_date(days_ago=3650)  # Up to 10 years ago
+            employment_start_date=random_recent_date(days_ago=3650)
         )
         employment_records.append(employment)
     
     session.bulk_save_objects(employment_records)
     session.commit()
-    print(f"Created {len(employment_records)} employment records")
+    print(f"✓ Created {len(employment_records)} employment records")
 
 
 def create_applications(session, customers, num_total=75):
-    """Generate loan applications with varied statuses"""
-    print(f"\n[3/9] Creating {num_total} applications...")
+    """
+    FIXED: Applications now use CAUSAL risk scoring.
+    """
+    print(f"\n[3/9] Creating {num_total} applications with CAUSAL risk logic...")
     applications = []
-    
-    # Ensure we have enough approved applications
-    statuses = ['Approved'] * NUM_APPROVED + ['Rejected'] * NUM_REJECTED + ['Pending'] * NUM_PENDING
-    random.shuffle(statuses)
+    approved_count = 0
+    rejected_count = 0
+    pending_count = 0
     
     for i in range(num_total):
         customer = random.choice(customers)
+        employment = session.query(Employment).filter_by(customer_id=customer.customer_id).first()
+        
+        # Generate loan details
         loan_amount = Decimal(random.choice([200000, 500000, 1000000, 1500000, 2000000, 3000000]))
         tenure_months = random.choice([12, 24, 36, 48, 60, 84, 120])
         interest_rate = Decimal(random.uniform(8.5, 14.5)).quantize(Decimal('0.01'))
         
-        # Generate credit score and risk probability
-        # Lower risk = higher credit score
-        risk_prob = Decimal(random.uniform(0.05, 0.45)).quantize(Decimal('0.0001'))
-        credit_score = Decimal(850 - (risk_prob * 1000)).quantize(Decimal('0.01'))
+        # ============================================
+        # CAUSAL RISK CALCULATION
+        # ============================================
+        risk_score, should_approve = calculate_risk_score(
+            float(employment.monthly_income),
+            float(loan_amount),
+            tenure_months,
+            employment.employment_type,
+            float(employment.years_of_experience)
+        )
+        
+        default_probability = calculate_default_probability(risk_score)
+        
+        # Convert risk score to credit score (inverse relationship)
+        credit_score = Decimal(850 - (risk_score * 5.5))  # 0 risk → 850, 100 risk → 300
+        
+        # Determine status
+        if should_approve:
+            if approved_count < 50:
+                status = 'Approved'
+                approved_count += 1
+            else:
+                status = 'Pending'
+                pending_count += 1
+        else:
+            if rejected_count < 15:
+                status = 'Rejected'
+                rejected_count += 1
+            else:
+                status = 'Pending'
+                pending_count += 1
         
         application = Application(
             customer_id=customer.customer_id,
@@ -215,21 +352,20 @@ def create_applications(session, customers, num_total=75):
             loan_tenure_months=tenure_months,
             interest_rate=interest_rate,
             application_date=random_recent_date(days_ago=180),
-            application_status=statuses[i],
+            application_status=status,
             credit_score=credit_score,
-            risk_probability=risk_prob,
-            remarks=f"Application processed based on credit score: {credit_score}"
+            risk_probability=Decimal(str(default_probability)).quantize(Decimal('0.0001')),
+            remarks=f"Risk Score: {risk_score}/100, DTI calculated"
         )
         applications.append(application)
     
     session.bulk_save_objects(applications)
     session.commit()
-    print(f"Created {num_total} applications (Approved: {NUM_APPROVED}, Rejected: {NUM_REJECTED}, Pending: {NUM_PENDING})")
+    print(f"✓ Created {num_total} applications (Approved: {approved_count}, Rejected: {rejected_count}, Pending: {pending_count})")
     return session.query(Application).filter_by(application_status='Approved').all()
 
 
 def create_approved_loans(session, approved_applications):
-    """Create approved_loans records for approved applications"""
     print(f"\n[4/9] Creating approved loan records...")
     approved_loans = []
     
@@ -247,33 +383,44 @@ def create_approved_loans(session, approved_applications):
     
     session.bulk_save_objects(approved_loans)
     session.commit()
-    print(f"Created {len(approved_loans)} approved loan records")
+    print(f"✓ Created {len(approved_loans)} approved loan records")
 
 
 def create_loans(session, approved_applications):
-    """Create disbursed loans"""
-    print(f"\n[5/9] Creating disbursed loans...")
+    """
+    FIXED: Loan defaults now based on risk probability (NOT random).
+    """
+    print(f"\n[5/9] Creating disbursed loans with CAUSAL default logic...")
     loans = []
     
     for app in approved_applications:
-        disbursed_amount = app.loan_amount * Decimal('0.99')  # 1% processing fee deducted
+        disbursed_amount = app.loan_amount * Decimal('0.99')
         emi = calculate_emi(float(app.loan_amount), float(app.interest_rate), app.loan_tenure_months)
         
-        # Some loans are active, some closed, some defaulted
-        status_weights = [0.7, 0.2, 0.1]  # 70% active, 20% closed, 10% defaulted
-        loan_status = random.choices(['Active', 'Closed', 'Defaulted'], weights=status_weights)[0]
+        # ============================================
+        # CAUSAL DEFAULT LOGIC
+        # ============================================
+        """
+        High risk_probability → Higher chance of default
+        """
+        default_threshold = random.random()
         
-        disbursement_date = app.application_date + timedelta(days=random.randint(5, 20))
-        
-        # Calculate outstanding balance based on status
-        if loan_status == 'Closed':
-            outstanding = Decimal('0.00')
-        elif loan_status == 'Defaulted':
+        if float(app.risk_probability) > default_threshold:
+            # This loan WILL default
+            loan_status = 'Defaulted'
             outstanding = app.loan_amount * Decimal(random.uniform(0.5, 0.9))
-        else:  # Active
-            months_passed = min(random.randint(3, app.loan_tenure_months - 1), app.loan_tenure_months)
+        elif random.random() < 0.2:
+            # 20% chance of early closure (low risk loans)
+            loan_status = 'Closed'
+            outstanding = Decimal('0.00')
+        else:
+            # Active loan
+            loan_status = 'Active'
+            months_passed = random.randint(3, app.loan_tenure_months - 1)
             outstanding = app.loan_amount - (Decimal(emi) * Decimal(months_passed) * Decimal('0.7'))
             outstanding = max(outstanding, Decimal('0.00'))
+        
+        disbursement_date = app.application_date + timedelta(days=random.randint(5, 20))
         
         loan = Loan(
             application_id=app.application_id,
@@ -291,22 +438,20 @@ def create_loans(session, approved_applications):
     
     session.bulk_save_objects(loans)
     session.commit()
-    print(f"Created {len(loans)} disbursed loans")
+    
+    defaulted = len([l for l in loans if l.loan_status == 'Defaulted'])
+    print(f"✓ Created {len(loans)} loans ({defaulted} defaulted based on risk probability)")
     return session.query(Loan).all()
 
 
 def create_collateral(session, loans):
-    """Create collateral records for ~60% of loans"""
     print(f"\n[6/9] Creating collateral records...")
     collateral_records = []
     
-    # Only 60% of loans have collateral
     loans_with_collateral = random.sample(loans, int(len(loans) * 0.6))
     
     for loan in loans_with_collateral:
         collateral_type = random.choice(COLLATERAL_TYPES)
-        
-        # Collateral value is typically 1.2-1.5x loan amount
         collateral_value = loan.loan_amount * Decimal(random.uniform(1.2, 1.5))
         
         collateral = Collateral(
@@ -324,11 +469,9 @@ def create_collateral(session, loans):
 
 
 def create_guarantors(session, loans):
-    """Create guarantor records for ~40% of loans"""
     print(f"\n[7/9] Creating guarantor records...")
     guarantors = []
     
-    # Only 40% of loans have guarantors
     loans_with_guarantors = random.sample(loans, int(len(loans) * 0.4))
     
     for loan in loans_with_guarantors:
@@ -353,29 +496,25 @@ def create_guarantors(session, loans):
 
 
 def create_repayments(session, loans):
-    """Create repayment records for active and closed loans"""
     print(f"\n[8/9] Creating repayment records...")
     repayments = []
     
     for loan in loans:
         if loan.loan_status == 'Defaulted':
-            continue  # Defaulted loans have no recent repayments
+            continue
         
-        # Number of repayments based on loan status
         if loan.loan_status == 'Closed':
             num_repayments = loan.tenure_months
-        else:  # Active
+        else:
             num_repayments = random.randint(3, min(12, loan.tenure_months))
         
         for i in range(num_repayments):
             emi_due_date = loan.disbursement_date + timedelta(days=30 * (i + 1))
             payment_date = emi_due_date + timedelta(days=random.randint(-5, 10))
             
-            # Split EMI into principal and interest (simplified)
-            interest_component = float(loan.emi_amount) * 0.4  # ~40% interest
+            interest_component = float(loan.emi_amount) * 0.4
             principal_component = float(loan.emi_amount) - interest_component
             
-            # 10% chance of late payment (with late fee)
             is_late = random.random() < 0.1
             late_fee = Decimal(random.randint(100, 500)) if is_late else Decimal('0.00')
             
@@ -394,11 +533,10 @@ def create_repayments(session, loans):
     
     session.bulk_save_objects(repayments)
     session.commit()
-    print(f"Created {len(repayments)} repayment records")
+    print(f"✓ Created {len(repayments)} repayment records")
 
 
 def create_npa_tracking(session, loans):
-    """Create NPA tracking records for defaulted loans"""
     print(f"\n[9/9] Creating NPA tracking records...")
     npa_records = []
     
@@ -407,7 +545,6 @@ def create_npa_tracking(session, loans):
     for loan in defaulted_loans:
         overdue_days = random.randint(90, 365)
         
-        # NPA classification based on overdue days
         if overdue_days < 180:
             classification = 'Sub-Standard'
         elif overdue_days < 365:
@@ -415,7 +552,6 @@ def create_npa_tracking(session, loans):
         else:
             classification = 'Loss'
         
-        # Get last repayment date if exists
         last_repayment = session.query(Repayment).filter_by(loan_id=loan.loan_id).order_by(Repayment.payment_date.desc()).first()
         last_payment_date = last_repayment.payment_date if last_repayment else None
         
@@ -435,27 +571,26 @@ def create_npa_tracking(session, loans):
     print(f"✓ Created {len(npa_records)} NPA tracking records")
 
 
+# ============================================
 # MAIN EXECUTION
+# ============================================
 
 def seed_database():
-    """Main function to seed all tables"""
     print("=" * 60)
-    print("STARTING DATABASE SEEDING")
+    print("STARTING DATABASE SEEDING (WITH CAUSAL LOGIC)")
     print("=" * 60)
     
     session = get_db_session()
     
     try:
-        # Check if data already exists
         existing_customers = session.query(Customer).count()
         if existing_customers > 0:
-            print(f"\nDatabase already contains {existing_customers} customers.")
+            print(f"\n⚠ Database already contains {existing_customers} customers.")
             response = input("Do you want to clear existing data and reseed? (yes/no): ")
             if response.lower() != 'yes':
                 print("Seeding cancelled.")
                 return
             
-            # Clear all tables (in reverse order due to foreign keys)
             print("\nClearing existing data...")
             session.query(NPATracking).delete()
             session.query(Repayment).delete()
@@ -469,7 +604,6 @@ def seed_database():
             session.commit()
             print("✓ Existing data cleared")
         
-        # Create data in proper order
         customers = create_customers(session, NUM_CUSTOMERS)
         create_employment(session, customers)
         approved_apps = create_applications(session, customers, NUM_APPLICATIONS)
@@ -481,19 +615,15 @@ def seed_database():
         create_npa_tracking(session, loans)
         
         print("\n" + "=" * 60)
-        print("DATABASE SEEDING COMPLETED SUCCESSFULLY!")
+        print("DATABASE SEEDING COMPLETED (WITH CAUSAL LOGIC)!")
         print("=" * 60)
         print(f"\nSummary:")
         print(f"  - Customers: {session.query(Customer).count()}")
         print(f"  - Applications: {session.query(Application).count()}")
-        print(f"  - Employment Records: {session.query(Employment).count()}")
         print(f"  - Loans: {session.query(Loan).count()}")
-        print(f"  - Collateral: {session.query(Collateral).count()}")
-        print(f"  - Guarantors: {session.query(Guarantor).count()}")
-        print(f"  - Approved Loans: {session.query(ApprovedLoan).count()}")
-        print(f"  - Repayments: {session.query(Repayment).count()}")
+        print(f"  - Defaulted Loans: {session.query(Loan).filter_by(loan_status='Defaulted').count()}")
         print(f"  - NPA Tracking: {session.query(NPATracking).count()}")
-        print("\nReady for API testing and ML training!")
+        print("\n✓ Data now has CAUSAL patterns (defaults based on DTI/income/risk)!")
         
     except Exception as e:
         session.rollback()

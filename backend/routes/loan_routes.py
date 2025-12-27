@@ -103,32 +103,43 @@ def submit_application():
             }), 400
         
         # ============================================
-        # PLACEHOLDER FOR ML MODEL (Phase 3)
+        # ML MODEL PREDICTION
         # ============================================
         """
-        TODO: In Phase 3, we'll replace this with actual ML prediction:
+        Use trained ML model to predict credit risk.
         
-        from ml.predict import predict_credit_risk
-        prediction = predict_credit_risk(customer_id, loan_amount, ...)
-        credit_score = prediction['credit_score']
-        risk_probability = prediction['risk_probability']
-        
-        For now, we'll use dummy values based on loan amount.
+        The model returns:
+        - credit_score (300-850)
+        - risk_probability (0-1)
+        - recommendation (Approve/Review/Reject)
         """
-        # Dummy credit score calculation (temporary)
-        # Lower loan amount = better score
-        loan_amount = data['loan_amount']
-        if loan_amount < 500000:
-            credit_score = Decimal('750.00')
-            risk_probability = Decimal('0.1000')
-            initial_status = 'Approved'
-        elif loan_amount < 1500000:
-            credit_score = Decimal('680.00')
-            risk_probability = Decimal('0.2500')
-            initial_status = 'Pending'
-        else:
-            credit_score = Decimal('620.00')
-            risk_probability = Decimal('0.4000')
+        try:
+            from ml.predict import predict_credit_risk
+            
+            prediction = predict_credit_risk(
+                customer_id=data['customer_id'],
+                loan_amount=data['loan_amount'],
+                loan_tenure_months=data['loan_tenure_months'],
+                interest_rate=data['interest_rate'],
+                loan_purpose=data['loan_purpose']
+            )
+            
+            credit_score = Decimal(str(prediction['credit_score']))
+            risk_probability = Decimal(str(prediction['risk_probability']))
+            
+            # Determine initial status based on ML recommendation
+            if prediction['recommendation'] == 'Approve':
+                initial_status = 'Approved'
+            elif prediction['recommendation'] == 'Reject or Require Collateral':
+                initial_status = 'Rejected'
+            else:
+                initial_status = 'Pending'  # Manual review
+            
+        except Exception as e:
+            # Fallback if model fails (shouldn't happen in production)
+            print(f"ML prediction failed: {str(e)}")
+            credit_score = Decimal('650.00')
+            risk_probability = Decimal('0.3000')
             initial_status = 'Pending'
         
         # ============================================
