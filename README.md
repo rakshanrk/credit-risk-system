@@ -518,7 +518,7 @@ This is a portfolio project, but feedback is welcome!
 
 **Rakshan R K**
 - GitHub: [@rakshanrk](https://github.com/rakshanrk)
-- Email: [rakshanrk04@gmail.com]
+- Email: rakshanrk04@gmail.com
 
 ---
 
